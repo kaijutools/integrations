@@ -25,6 +25,7 @@ type Config struct {
 type Client struct {
 	cfg        Config
 	httpClient *http.Client
+	BaseURL    string
 }
 
 func NewClient(cfg Config) *Client {
@@ -33,6 +34,7 @@ func NewClient(cfg Config) *Client {
 		httpClient: &http.Client{
 			Timeout: time.Second * 30,
 		},
+		BaseURL: BaseURL,
 	}
 }
 

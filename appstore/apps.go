@@ -8,7 +8,7 @@ import (
 
 // ListApps fetches all apps associated with the account
 func (c *Client) ListApps() (*AppsResponse, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/apps", BaseURL), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/apps", c.BaseURL), nil)
 	if err != nil {
 		return nil, err
 	}
