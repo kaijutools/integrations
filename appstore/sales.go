@@ -10,9 +10,6 @@ import (
 	"strconv"
 )
 
-// Define the Base URL explicitly here to avoid resolution errors
-const APIBaseURL = "https://api.appstoreconnect.apple.com"
-
 // SalesReportRow represents a single row in Apple's "Summary" Sales Report
 type SalesReportRow struct {
 	ProviderCode     string
@@ -32,21 +29,14 @@ type SalesReportRow struct {
 
 // GetFirstVendorNumber fetches the list of available vendors.
 func (c *Client) GetFirstVendorNumber() (string, error) {
-	// 1. Create Request
-	req, err := http.NewRequest("GET", APIBaseURL+"/v1/vendors", nil)
+	// BaseURL already includes "/v1", so we just append "/vendors"
+	req, err := http.NewRequest("GET", c.BaseURL+"/vendors", nil)
 	if err != nil {
 		return "", err
 	}
 
-	// 2. Add Auth Headers
-	token, err := c.CreateToken()
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	// 3. Execute
-	resp, err := c.httpClient.Do(req)
+	// Use c.Do() to handle Authentication headers automatically
+	resp, err := c.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -57,7 +47,7 @@ func (c *Client) GetFirstVendorNumber() (string, error) {
 		return "", fmt.Errorf("apple api error (%d): %s", resp.StatusCode, string(body))
 	}
 
-	// 4. Parse Response
+	// Parse Response
 	var result struct {
 		Data []struct {
 			ID         string `json:"id"`
@@ -80,32 +70,28 @@ func (c *Client) GetFirstVendorNumber() (string, error) {
 
 // DownloadSalesReport fetches the GZipped report for a specific date
 func (c *Client) DownloadSalesReport(vendorNumber, date string) ([]SalesReportRow, error) {
-	// 1. Build URL
+	// Build URL. BaseURL has "/v1", so we append "/salesReports"
 	// frequency=DAILY, reportType=SALES, reportSubType=SUMMARY
-	url := fmt.Sprintf("%s/v1/salesReports?filter[frequency]=DAILY&filter[reportDate]=%s&filter[reportSubType]=SUMMARY&filter[reportType]=SALES&filter[vendorNumber]=%s",
-		APIBaseURL, date, vendorNumber)
+	url := fmt.Sprintf("%s/salesReports?filter[frequency]=DAILY&filter[reportDate]=%s&filter[reportSubType]=SUMMARY&filter[reportType]=SALES&filter[vendorNumber]=%s",
+		c.BaseURL, date, vendorNumber)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := c.CreateToken()
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/a-gzip") // Critical header for GZIP response
+	// Important: Tell Apple we want the GZIP format
+	req.Header.Set("Accept", "application/a-gzip")
 
-	// 2. Execute
-	resp, err := c.httpClient.Do(req)
+	// Execute with Auth
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// 404 is common if the report isn't ready yet
+		// 404 usually means report not ready
 		if resp.StatusCode == 404 {
 			return []SalesReportRow{}, nil
 		}
@@ -113,16 +99,16 @@ func (c *Client) DownloadSalesReport(vendorNumber, date string) ([]SalesReportRo
 		return nil, fmt.Errorf("failed to download report (%d): %s", resp.StatusCode, string(body))
 	}
 
-	// 3. Decompress GZIP
+	// Decompress GZIP
 	gzReader, err := gzip.NewReader(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read gzip: %v", err)
 	}
 	defer gzReader.Close()
 
-	// 4. Parse TSV
+	// Parse TSV
 	tsvReader := csv.NewReader(gzReader)
-	tsvReader.Comma = '\t' // Apple uses tabs, not commas
+	tsvReader.Comma = '\t'
 	tsvReader.LazyQuotes = true
 
 	// Read Header (Skip it)
@@ -142,12 +128,10 @@ func (c *Client) DownloadSalesReport(vendorNumber, date string) ([]SalesReportRo
 			continue
 		}
 
-		// Ensure we don't crash on short rows
 		if len(record) < 13 {
 			continue
 		}
 
-		// Parse numeric fields safely
 		units, _ := strconv.Atoi(record[7])
 		proceeds, _ := strconv.ParseFloat(record[8], 64)
 
